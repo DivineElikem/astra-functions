@@ -6,7 +6,7 @@ admin.initializeApp();
 const db = admin.firestore();
 
 
-// Deposit webhook endpoint
+//Endpoint for Deposit webhook
 exports.depositWebhook = functions.https.onRequest(async (req, res) => {
   const event = req.body;
   console.log(event);
@@ -70,7 +70,7 @@ exports.depositWebhook = functions.https.onRequest(async (req, res) => {
 
 
 
-// Transfer funds between users endpoint
+//Endpoint for Transfer funds between user
 exports.transferFunds = functions.https.onRequest(async (req, res) => {
   try {
     const { sender_id, recipient_id, amount, description } = req.body;
