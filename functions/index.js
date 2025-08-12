@@ -1,10 +1,13 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+const { FieldValue } = require("firebase-admin/firestore");
 
 admin.initializeApp();
 const db = admin.firestore();
 
-exports.deposit = functions.https.onRequest(async (req, res) => {
+
+// Deposit webhook endpoint
+exports.depositWebhook = functions.https.onRequest(async (req, res) => {
   const event = req.body;
   console.log(event);
 
@@ -63,3 +66,62 @@ exports.deposit = functions.https.onRequest(async (req, res) => {
     return res.status(200).send();
   }
 });
+
+
+
+
+// Transfer funds between users endpoint
+exports.transferFunds = functions.https.onRequest(async (req, res) => {
+  try {
+    const { sender_id, recipient_id, amount, description } = req.body;
+    if (!sender_id || !recipient_id || !amount || isNaN(amount) || amount <= 0) {
+      return res.status(400).json({ error: "Invalid request parameters" });
+    }
+
+    const senderRef = db.collection("profiles").doc(sender_id);
+    const recipientRef = db.collection("profiles").doc(recipient_id);
+
+    await db.runTransaction(async (t) => {
+      const senderDoc = await t.get(senderRef);
+      const recipientDoc = await t.get(recipientRef);
+
+      if (!senderDoc.exists || !recipientDoc.exists) {
+        throw new Error("Sender or recipient not found");
+      }
+
+      const senderData = senderDoc.data();
+      const recipientData = recipientDoc.data();
+      const senderBalance = senderData.walletBalance || 0;
+      const recipientBalance = recipientData.walletBalance || 0;
+
+      if (senderBalance < amount) {
+        throw new Error("Insufficient funds");
+      }
+
+      t.update(senderRef, { walletBalance: senderBalance - amount });
+      t.update(recipientRef, { walletBalance: recipientBalance + amount });
+
+      const transactionDoc = {
+        amount,
+        createdAt: FieldValue.serverTimestamp(),
+        sender_id,
+        recipient_id,
+        description: description || "",
+        status: "success",
+      };
+      t.set(db.collection("transactions").doc(), transactionDoc);
+    });
+
+    return res.status(200).json({ message: "Transfer successful" });
+  } catch (error) {
+    console.error("Transfer error:", error);
+    return res.status(400).json({ error: error.message || "Transfer failed" });
+  }
+});
+
+
+
+
+
+
+
