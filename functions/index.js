@@ -1,10 +1,13 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
+require('dotenv').config(); // For local testing
+
+const { sendSMS, createTransferRecipient, transferFunds } = require("./utils/helper_utils");
 
 admin.initializeApp();
 const db = admin.firestore();
 
-exports.deposit = functions.https.onRequest(async (req, res) => {
+exports.depositWebhook = functions.https.onRequest(async (req, res) => {
   const event = req.body;
   console.log(event);
 
@@ -61,5 +64,32 @@ exports.deposit = functions.https.onRequest(async (req, res) => {
   } else {
     // For other events, just respond with 200
     return res.status(200).send();
+  }
+});
+
+exports.sendSMSMessage = functions.https.onRequest(async (req, res) => {
+  const { phone, message } = req.body;
+  try {
+    await sendSMS(phone, message);
+    res.status(200).send({ success: true });
+  } catch (error) {
+    res.status(500).send({ error: error.message });
+  }
+});
+
+exports.withdrawfunds = functions.https.onRequest(async (req, res) => {
+  try {
+    const { phone, amount, network } = req.body;
+    const transferrecipientData = await createTransferRecipient(phone, network);
+    const recipientCode = transferrecipientData.recipient_code;
+    if (recipientCode) {
+      const response = await transferFunds(recipientCode, amount, phone);
+      res.status(200).send(response);
+    } else {
+      res.status(400).send({ error: "Recipient code not found" });
+    }
+  } catch (error) {
+    console.error('Error in withdrawfunds function:', error);
+    res.status(500).send({ error: error.message });
   }
 });
