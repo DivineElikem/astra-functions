@@ -1,22 +1,27 @@
 const functions = require("firebase-functions");
 const admin = require("firebase-admin");
 require('dotenv').config(); // For local testing
-
+const express = require("express");
+const { FieldValue } = require("firebase-admin/firestore");
 const { sendSMS, createTransferRecipient, transferFunds } = require("./utils/helper_utils");
-
+const logger = require("firebase-functions/logger")
 admin.initializeApp();
 const db = admin.firestore();
 
+const app = express();
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
-//Endpoint for Deposit webhook
-exports.depositWebhook = functions.https.onRequest(async (req, res) => {
+app.get("/", (req, res) => {
+  res.send("Welcome to the Firebase Cloud Functions API!");
+});
+// Deposit webhook route
+app.post("/depositWebhook", async (req, res) => {
   const event = req.body;
-  console.log(event);
+  logger.log(event);
 
   if (event.event === "charge.success") {
     const data = event.data || {};
-
-    // Extract user_id from metadata
     const metadata = data.metadata;
     let userId = null;
 
@@ -41,10 +46,8 @@ exports.depositWebhook = functions.https.onRequest(async (req, res) => {
     };
 
     try {
-      // Add to Firestore
       await db.collection("deposits").add(depositDoc);
 
-      // Increment walletBalance in profiles collection if userId is available
       if (userId) {
         const profileRef = db.collection("profiles").doc(userId);
         const profileDoc = await profileRef.get();
@@ -58,23 +61,21 @@ exports.depositWebhook = functions.https.onRequest(async (req, res) => {
         }
       }
 
-      return res.status(200).send();
+      
+      res.status(200).send();
     } catch (error) {
       console.error("Error processing deposit:", error);
-      return res.status(500).send("Internal Server Error");
+      res.status(500).send("Internal Server Error");
     }
   } else {
     // For other events, just respond with 200
-    return res.status(200).send();
+    res.status(200).send();
   }
 });
 
 
-
-
-//Endpoint for Transfer funds between user
-//Endpoint for Transfer funds between user
-exports.transferFunds = functions.https.onRequest(async (req, res) => {
+// Transfer funds route
+app.post("/transferFunds", async (req, res) => {
   try {
     const { sender_id, recipient_id, amount, description } = req.body;
     if (!sender_id || !recipient_id || !amount || isNaN(amount) || amount <= 0) {
@@ -115,14 +116,16 @@ exports.transferFunds = functions.https.onRequest(async (req, res) => {
       t.set(db.collection("transactions").doc(), transactionDoc);
     });
 
-    return res.status(200).json({ message: "Transfer successful" });
+    res.status(200).json({ message: "Transfer successful" });
   } catch (error) {
     console.error("Transfer error:", error);
-    return res.status(400).json({ error: error.message || "Transfer failed" });
+    res.status(400).json({ error: error.message || "Transfer failed" });
   }
 });
 
-exports.withdrawfunds = functions.https.onRequest(async (req, res) => {
+
+// Withdraw funds route
+app.post("/withdrawfunds", async (req, res) => {
   try {
     const { phone, amount, network } = req.body;
     const transferrecipientData = await createTransferRecipient(phone, network);
@@ -138,3 +141,7 @@ exports.withdrawfunds = functions.https.onRequest(async (req, res) => {
     res.status(500).send({ error: error.message });
   }
 });
+
+
+// Export the Express app as a single Cloud Function
+exports.api = functions.https.onRequest(app);
